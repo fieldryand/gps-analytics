@@ -1,2 +1,4 @@
+# environment vars
+.env
 # IDE config
 .idea

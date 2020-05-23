@@ -29,16 +29,20 @@ def to_csv(x: gpxpy.gpx.GPX, filename: str):
               'long',
               'ele',
               'time',
-              'speed']
+              'speed',
+              'dist_from_start']
 
     with open(filename, 'w') as file:
         writer = csv.writer(file)
         writer.writerow(fields)
-        for track in x.tracks:
+        points_data = x.get_points_data()
+        for t, track in enumerate(x.tracks):
+            track_points_data = [p for p in points_data if p.track_no == t]
             moving_data = track.get_moving_data()
             time_bounds = track.get_time_bounds()
             bounds = track.get_bounds()
             for k, segment in enumerate(track.segments):
+                segment_points_data = [p for p in track_points_data if p.segment_no == k]
                 for i, point in enumerate(segment.points):
                     speed_kmh = ms_to_kmh(segment.get_speed(i))
                     writer.writerow((x.name,
@@ -56,116 +60,14 @@ def to_csv(x: gpxpy.gpx.GPX, filename: str):
                                      point.longitude,
                                      point.elevation,
                                      point.time,
-                                     speed_kmh))
+                                     speed_kmh,
+                                     segment_points_data[i].distance_from_start
+                                     ))
 
 
 def drop_extension(filename: str) -> str:
     """Drop the extension from a filename"""
     return filename.split('.')[0]
-
-
-# Monkey patch pre-release bug fixes
-from typing import Optional, cast
-import datetime as mod_datetime
-
-import gpxpy.utils as mod_utils
-import gpxpy.geo as mod_geo
-from gpxpy.gpx import MovingData
-
-DEFAULT_STOPPED_SPEED_THRESHOLD = 1
-
-
-def total_seconds(timedelta: mod_datetime.timedelta) -> float:
-    """ Some versions of python don't have the timedelta.total_seconds() method. """
-    if timedelta is None:
-        return None
-    return_seconds = cast(float, (timedelta.days * 86400) + timedelta.seconds)
-    if timedelta.microseconds > 0:
-        return_seconds += timedelta.microseconds/1000000.0
-    return return_seconds
-
-
-gpxpy.utils.total_seconds = total_seconds
-
-
-def get_moving_data(self, stopped_speed_threshold: Optional[float]=None) -> Optional[MovingData]:
-    """
-    Return a tuple of (moving_time, stopped_time, moving_distance,
-    stopped_distance, max_speed) that may be used for detecting the time
-    stopped, and max speed. Not that those values are not absolutely true,
-    because the "stopped" or "moving" information aren't saved in the segment.
-    Because of errors in the GPS recording, it may be good to calculate
-    them on a reduced and smoothed version of the track.
-    Parameters
-    ----------
-    stopped_speed_threshold : float
-        speeds (km/h) below this threshold are treated as if having no
-        movement. Default is 1 km/h.
-    Returns
-    ----------
-    moving_data : MovingData : named tuple
-        moving_time : float
-            time (seconds) of segment in which movement was occurring
-        stopped_time : float
-            time (seconds) of segment in which no movement was occurring
-        stopped_distance : float
-            distance (meters) travelled during stopped times
-        moving_distance : float
-            distance (meters) travelled during moving times
-        max_speed : float
-            Maximum speed (m/s) during the segment.
-    """
-    if not stopped_speed_threshold:
-        stopped_speed_threshold = DEFAULT_STOPPED_SPEED_THRESHOLD
-
-    moving_time = 0.
-    stopped_time = 0.
-
-    moving_distance = 0.
-    stopped_distance = 0.
-
-    speeds_and_distances = []
-
-    for i in range(1, len(self.points)):
-
-        previous = self.points[i - 1]
-        point = self.points[i]
-
-        # Won't compute max_speed for first and last because of common GPS
-        # recording errors, and because smoothing don't work well for those
-        # points:
-        if point.time and previous.time:
-            timedelta = point.time - previous.time
-
-            if point.elevation and previous.elevation:
-                distance = point.distance_3d(previous)
-            else:
-                distance = point.distance_2d(previous)
-
-            seconds = mod_utils.total_seconds(timedelta)
-            speed_kmh: float = 0
-            if seconds > 0 and distance is not None:
-                # TODO: compute threshold in m/s instead this to kmh every time:
-                speed_kmh = (distance / 1000.) / (seconds / 60. ** 2)
-                if distance:
-                    if speed_kmh <= stopped_speed_threshold:
-                        stopped_time += seconds
-                        stopped_distance += distance
-                    else:
-                        moving_time += seconds
-                        moving_distance += distance
-                    if moving_time:
-                        speeds_and_distances.append((distance / seconds, distance, ))
-
-    max_speed = None
-    if speeds_and_distances:
-        max_speed = mod_geo.calculate_max_speed(speeds_and_distances)
-
-    return MovingData(moving_time, stopped_time, moving_distance, stopped_distance, max_speed or 0.0)
-
-
-gpxpy.gpx.GPXTrackSegment.get_moving_data = get_moving_data
-# End monkey patch
 
 
 if __name__ == '__main__':

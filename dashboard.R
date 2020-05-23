@@ -53,14 +53,17 @@ main <- function() {
     ggplot(data = ., aes(x = date, y = duration, color = gpx_name)) +
       geom_line()
 
+  tours %>%
+    filter(speed < MAX_SPEED) %>%
+    ggplot(data = ., aes(x = trk_mov_dist, y = speed)) +
+      geom_point() +
+      facet_wrap(~gpx_name)
+
   speed_profiles <- tours %>%
     filter(speed < MAX_SPEED) %>%
-    group_by(gpx_id) %>%
-    arrange(time) %>%
-    mutate(point_id = row_number()) %>%
-    ungroup %>%
-    ggplot(data = ., aes(x = point_id, y = speed, group = date, color = date)) +
-      geom_smooth(se = FALSE) +
+    ggplot(data = ., aes(x = dist_from_start, y = speed, group = date,
+                         color = as.factor(date))) +
+      geom_smooth(se = FALSE, method = "gam") +
       facet_wrap(~gpx_name)
 
   map_palette <- tours %>%
